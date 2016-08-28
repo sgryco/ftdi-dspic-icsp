@@ -186,7 +186,6 @@ unsigned short regout(void){
 	clock(0);
 	clock(0);
 	clock(0);
-	flush_buf();
 
 	for(i=0;i<8;i++){
 		clock(0);
@@ -379,7 +378,7 @@ void enter_icsp(){
    * operation resumes as normal (the next 24 clock cycles load the first instruction
    * word to the CPU)*/
   int tmp;
-  /* do 9 clocks at (0) then a nop */
+  /* do 5 extra clocks*/
   for(tmp=0; tmp < 5; tmp++){
  	  clock(0);
   }
