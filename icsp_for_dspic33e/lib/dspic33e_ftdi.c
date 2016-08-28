@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <ftdi.h>
-#include "dspic33_ftdi.h"
+#include "dspic33e_ftdi.h"
 #include "lib_crc.h"
 
 struct ftdi_context ftdic;
@@ -29,32 +29,31 @@ void open_ftdi_for_icsp(void){
 		exit(-1);
 	}
 	f = ftdi_usb_open(&ftdic, 0x0403, 0xac75);
-	/*f = ftdi_usb_open(&ftdic, 0x0403, 0x6001);*/
 	if (f < 0 && f != -5){
 		fprintf(stderr, "unable to open ftdi device: %d (%s)\n", f, ftdi_get_error_string(&ftdic));
 		exit(-1);
 	}
 	printf("ftdi open succeeded: %d\n",f);
 	usleep(10000);
-  f =  ftdi_usb_purge_buffers(&ftdic);   	
+  f =  ftdi_usb_purge_buffers(&ftdic);
   if (f < 0 ){
     fprintf(stderr, "purge buffers error: %d (%s)\n", f, ftdi_get_error_string(&ftdic));
     exit(-1);
-  }		
-  
-  f =  ftdi_usb_purge_rx_buffer(&ftdic);   	
+  }
+
+  f =  ftdi_usb_purge_rx_buffer(&ftdic);
   if (f < 0 ){
     fprintf(stderr, "purge rx buffer error: %d (%s)\n", f, ftdi_get_error_string(&ftdic));
     exit(-1);
-  }	
+  }
 
   //Warning here, the size must be the same for read and write!
   f = ftdi_read_data_set_chunksize(&ftdic, BUF_SIZE);
   if (f < 0 ){
     fprintf(stderr, "set write chunksize error: %d (%s)\n", f, ftdi_get_error_string(&ftdic));
     exit(-1);
-  }	
-  
+  }
+
   f = ftdi_write_data_set_chunksize(&ftdic, BUF_SIZE);
   if (f < 0 ){
     fprintf(stderr, "set read chunksize error: %d (%s)\n", f, ftdi_get_error_string(&ftdic));
@@ -64,19 +63,11 @@ void open_ftdi_for_icsp(void){
   io_mask = IN; //All input
   set_ftdi_mode(BITMODE_BITBANG);
 
-  f =  ftdi_set_baudrate(&ftdic, 480);
-  /*f =  ftdi_set_baudrate(&ftdic, 230400); // 0.9216 MHz*/
+  f =  ftdi_set_baudrate(&ftdic, 38400);
   if (f < 0 ){
     fprintf(stderr, "unable to set speed : %d (%s)\n", f, ftdi_get_error_string(&ftdic));
     exit(-1);
   }
-
-  f =  ftdi_set_latency_timer(&ftdic, 1);
-  if (f < 0 ){
-    fprintf(stderr, "set latency to 0 error: %d (%s)\n", f, ftdi_get_error_string(&ftdic));
-    exit(-1);
-  }
-
 }
 
 
@@ -96,18 +87,20 @@ void conf_as_input(int pin){ //bclr for input
 	ftdi_set_bitmode(&ftdic, io_mask, ftdi_mode);
 }
 
-void conf_as_output(int pin){ //bset for ouput
+void conf_as_output(int pin){ //bset for output
 	io_mask |= (1<<pin);
 	ftdi_set_bitmode(&ftdic, io_mask, ftdi_mode);
 }
 
 void set(int pin){
+  flush_buf();
 	output_state |= (1<<pin);
 	if((f = ftdi_write_data(&ftdic, &output_state, 1)) < 0)
 		fprintf(stderr,"clr failed for pin %d, error %d (%s)\n",pin,f, ftdi_get_error_string(&ftdic));
 }
 
 void clr(int pin){
+  flush_buf();
 	output_state &= ~(1<<pin);
 	if((f = ftdi_write_data(&ftdic, &output_state, 1)) < 0) {
 		fprintf(stderr,"clr failed for pin %d, error %d (%s)\n",pin,f, ftdi_get_error_string(&ftdic));
@@ -127,31 +120,40 @@ void flush_buf(void){
 			fprintf(stderr,"Flush_buf write error %d (%s)\n",f, ftdi_get_error_string(&ftdic));
 			exit(-1);
 		}
-    usleep(buf_pos * 200);
+    /*usleep(buf_pos * 200);*/
 	buf_pos = 0;
 	}
 }
 
 void clock(int bit){
 	if(buf_pos>BUF_SIZE-5){ // -5 to allow a full double clock (4 bytes)
-
 		flush_buf();
 	}
+  //clock low, set value
 	output_state &= ~(1<<PGC); //clock low
+	t_buf[buf_pos++] = output_state;
+
+  //change data value
 	if(bit){
-		output_state |= (1<<PGD); //one
+		output_state |= (1<<PGD); // one
 	}else{
 		output_state &= ~(1<<PGD); // zero
 	}
-	t_buf[buf_pos++] = output_state ;
+	t_buf[buf_pos++] = output_state;
+
+  //clock high
 	output_state |= 1<<PGC;
-	t_buf[buf_pos++] = output_state ;
+	t_buf[buf_pos++] = output_state;
+
+  //extra low state, low, high, low
+	output_state &= ~(1<<PGC); //clock low
+	t_buf[buf_pos++] = output_state;
 }
 
 void key(uint32_t key){
 	int i;
 	for(i=0;i<32;i++){
-		clock( (key&0x80000000)>>31 );  // The Most Significant bit of
+		clock((key&0x80000000) != 0);  // The Most Significant bit of
 										// the most significant nibble must be shifted in first.
 		key <<= 1;
 	}
@@ -162,8 +164,7 @@ void key(uint32_t key){
 
 void six(uint32_t inst){
 	int i;
-
-	clock(0); // SIX (implies that a command will be written)
+	clock(0); // SIX (send a command)
 	clock(0);
 	clock(0);
 	clock(0);
@@ -188,18 +189,20 @@ unsigned short regout(void){
 	uint16_t s;
 	uint16_t s2;
 	int i;
-	uint8_t c[33];
+	uint8_t c[255];
 
 	clock(1); // REGOUT will read 16 bits (a word)
 	clock(0);
 	clock(0);
 	clock(0);
+	flush_buf();
 
 	for(i=0;i<8;i++){
 		clock(0);
 	}
 	flush_buf();
 
+  usleep(40000);
   set_ftdi_mode(BITMODE_SYNCBB);
 
 	conf_as_input(PGD);
@@ -217,16 +220,14 @@ unsigned short regout(void){
 	for(i=0;i<16;i++){
 		clock(0);
 	}
-	output_state &= ~(1<<PGC); //clock low
-	t_buf[buf_pos++] = output_state ;
 	flush_buf();
 
 	usleep(10000);
-	f = ftdi_read_data(&ftdic, c, 99);
+	f = ftdi_read_data(&ftdic, c, 255);
 	if(f<0){
 		fprintf(stderr,"read failed in regout, error %d (%s)\n", f, ftdi_get_error_string(&ftdic));
 		exit(-1);
-	}else if(f != 33){
+	}else if(f != 64){
 		printf("did not read enough bytes, only %d...\n",f);
 		printf("ftdi read error\n");
 		exit_icsp();
@@ -235,11 +236,11 @@ unsigned short regout(void){
 	}
 	s = 0;
 	s2 = 0;
-	for(i=0; i<32; i+=2){
+	for(i=0; i<64; i+=4){
 		s2 >>= 1;
-		s2 |= ((unsigned short) ((c[i] & (1<<PGD)) >> PGD)) << 15;//shift in LSB first
+		s2 |= ((unsigned short) ((c[i+2] & (1<<PGD)) >> PGD)) << 15;//shift in LSB first
 		s >>= 1;
-		s |= ((unsigned short) ((c[i+1] & (1<<PGD)) >> PGD)) << 15;//shift in LSB first
+		s |= ((unsigned short) ((c[i+3] & (1<<PGD)) >> PGD)) << 15;//shift in LSB first
 	}
   printf("decode impair: %04hX\n", s);
   /*printf("decode pair: %04hX\n", s2);*/
@@ -259,10 +260,11 @@ dev_ID if read success and ID recognized
 */
 	unsigned short dev_id;
 
-  printf("first read\n");
-	dev_id = regout();	// READ VISI !!
 	six(nop);
-	six(nop);
+  six(goto_0x200);
+  six(nop);
+  six(nop);
+  six(nop);
 
 	six(0x20F887); //	MOV #VISI, W7
 	six(nop); 		 //	NOP
@@ -279,33 +281,16 @@ dev_ID if read success and ID recognized
 
 	dev_id = regout();	// READ VISI !!
 	six(nop); 		 //	NOP
-
-	dev_id = regout();
 	six(nop); 		 //	NOP
-	dev_id = regout();
 	six(nop); 		 //	NOP
-	dev_id = regout();
 	six(nop); 		 //	NOP
-	dev_id = regout();
-	six(nop); 		 //	NOP
-	dev_id = regout();
-	six(nop); 		 //	NOP
-	dev_id = regout();
-	six(nop); 		 //	NOP
-	dev_id = regout();
-	six(nop); 		 //	NOP
-	dev_id = regout();
 	six(nop); 		 //	NOP
 
-	six(nop);
-	six(nop);
-	six(nop);
-	six(goto_0x200);
-	six(nop);
-	six(nop);
-	six(nop);
+	dev_id = regout();
+	six(nop); 		 //	NOP
+	dev_id = regout();
+	six(nop); 		 //	NOP
 	flush_buf();
-  printf("devid=%d\n", dev_id);
 }
 
 int read_id(void){
@@ -389,7 +374,7 @@ dev_ID if read success and ID recognized
 }
 
 
-void enter_icsp(void){
+void enter_icsp(int numc){
 	printf("Entering ICSP\n");
 	clr(MCLR);
 	clr(PGC);
@@ -406,7 +391,7 @@ void enter_icsp(void){
 	set(MCLR);
 	// in ICSP mode (if everything went fine...)
 
-	usleep(30000); //P7 + P1*5 = 25ms + 5*200ns = 30ms.
+	usleep(150000); //P7 + P1*5 = 25ms + 5*200ns = 30ms.
   /* Coming out of the ICSP entry sequence, the first 4-bit control code is always
    * forced to SIX and a forced NOP instruction is executed by the CPU. "Five" additional
    * PGC clocks are needed on start-up, thereby resulting in a 9-bit SIX command
@@ -414,15 +399,17 @@ void enter_icsp(void){
    * operation resumes as normal (the next 24 clock cycles load the first instruction
    * word to the CPU)*/
   int tmp;
-  /* do the five extra clock(0) */
-  for(tmp=0; tmp < 5 ; tmp++){
+  /* do 9 clocks at (0) then a nop */
+  for(tmp=0; tmp < 5; tmp++){
  	  clock(0);
   }
 	flush_buf();
-  usleep(20);
-  six(nop); //forced nop
+  usleep(4000); //P4: 40ns
+  //important to have this jump so soon, else, it resets always..
+  six(goto_0x200);
+  six(nop);
 	flush_buf();
-  usleep(20);
+  usleep(4000); //P4A: 40ns
 }
 
 void exit_icsp(void){ // ending ICSP
