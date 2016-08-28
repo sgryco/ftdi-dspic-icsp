@@ -1,0 +1,4 @@
+*.o
+/test/led_blink_icsp/led
+/test/led_blink_icsp/test_led
+/test/read_id/read_id
