@@ -65,7 +65,7 @@ void clock(int bit);
 
 //ICSP
 
-void enter_icsp(int);
+void enter_icsp();
 void key(uint32_t);
 void six(uint32_t inst);
 uint16_t regout(void);

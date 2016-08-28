@@ -10,18 +10,15 @@
 
 
 int main(int argc, char **argv){
-	open_ftdi_for_icsp();
- 	enter_icsp(0);
+  open_ftdi_for_icsp();
+  enter_icsp(0);
   test_regout();
-   if(read_id()>0){
-     printf("yahoo, pic found...\n");
-   }else{
-     printf("READ_ID error, exitting...\n");
-
-   }
-
- 	exit_icsp();
-	close_ftdi_for_icsp();
-
-    return 0;
+  if(read_id()>0){
+    printf("yahoo, pic found...\n");
+  }else{
+    printf("READ_ID error, exitting...\n");
+  }
+  exit_icsp();
+  close_ftdi_for_icsp();
+  return 0;
 }

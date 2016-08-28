@@ -4,9 +4,9 @@ PROG=led
 
 all: $(PROG)
 
-../lib/dspic33_ftdi.o: ../lib/dspic33_ftdi.h ../lib/dspic33_ftdi.c
+../lib/dspic33e_ftdi.o: ../lib/dspic33e_ftdi.h ../lib/dspic33e_ftdi.c
 
-	gcc -Wall -O3 -c ../lib/dspic33_ftdi.c -o ../lib/dspic33_ftdi.o 
+	gcc -Wall -O3 -c ../lib/dspic33e_ftdi.c -o ../lib/dspic33e_ftdi.o 
 	
 ../lib/lib_crc.o: ../lib/lib_crc.h ../lib/lib_crc.c
 
@@ -17,9 +17,9 @@ $(PROG).o: $(PROG).c ../lib/dspic33_ftdi.h
 
 	gcc -Wall -O3 -c $(PROG).c -o $(PROG).o 
 	
-$(PROG): ../lib/dspic33_ftdi.o ../lib/lib_crc.o $(PROG).o 
+$(PROG): ../lib/dspic33e_ftdi.o ../lib/lib_crc.o $(PROG).o 
 
-	gcc -Wall -O3 ../lib/lib_crc.o ../lib/dspic33_ftdi.o $(PROG).o -o $(PROG) -lftdi
+	gcc -Wall -O3 ../lib/lib_crc.o ../lib/dspic33e_ftdi.o $(PROG).o -o $(PROG) -lftdi
 	
 clean:
 	rm $(PROG) $(PROG).o -f

@@ -129,11 +129,8 @@ void clock(int bit){
 	if(buf_pos>BUF_SIZE-5){ // -5 to allow a full double clock (4 bytes)
 		flush_buf();
 	}
-  //clock low, set value
+  //clock low + set value
 	output_state &= ~(1<<PGC); //clock low
-	t_buf[buf_pos++] = output_state;
-
-  //change data value
 	if(bit){
 		output_state |= (1<<PGD); // one
 	}else{
@@ -143,10 +140,6 @@ void clock(int bit){
 
   //clock high
 	output_state |= 1<<PGC;
-	t_buf[buf_pos++] = output_state;
-
-  //extra low state, low, high, low
-	output_state &= ~(1<<PGC); //clock low
 	t_buf[buf_pos++] = output_state;
 }
 
@@ -187,7 +180,6 @@ unsigned char get_bit(unsigned char pin){
 
 unsigned short regout(void){
 	uint16_t s;
-	uint16_t s2;
 	int i;
 	uint8_t c[255];
 
@@ -209,25 +201,19 @@ unsigned short regout(void){
   ftdi_usb_purge_buffers(&ftdic);
   ftdi_usb_purge_rx_buffer(&ftdic);
 
-	/*s=0;
-	for(i=0;i<16;i++){
-		clock(0);
-		flush_buf();
-		s >>= 1;
-		s |= ((unsigned short) get_bit(PGD)) << 15;//shift in LSB first
-	}*/
-
 	for(i=0;i<16;i++){
 		clock(0);
 	}
 	flush_buf();
+  clr(PGC); //clock must go back to low
+
 
 	usleep(10000);
 	f = ftdi_read_data(&ftdic, c, 255);
 	if(f<0){
 		fprintf(stderr,"read failed in regout, error %d (%s)\n", f, ftdi_get_error_string(&ftdic));
 		exit(-1);
-	}else if(f != 64){
+	}else if(f != 33){
 		printf("did not read enough bytes, only %d...\n",f);
 		printf("ftdi read error\n");
 		exit_icsp();
@@ -235,15 +221,11 @@ unsigned short regout(void){
 		exit(-1);
 	}
 	s = 0;
-	s2 = 0;
-	for(i=0; i<64; i+=4){
-		s2 >>= 1;
-		s2 |= ((unsigned short) ((c[i+2] & (1<<PGD)) >> PGD)) << 15;//shift in LSB first
+	for(i=0; i<33; i+=2){
 		s >>= 1;
-		s |= ((unsigned short) ((c[i+3] & (1<<PGD)) >> PGD)) << 15;//shift in LSB first
+		s |= ((unsigned short) ((c[i+0] & (1<<PGD)) >> PGD)) << 15;//shift in LSB first
 	}
-  printf("decode impair: %04hX\n", s);
-  /*printf("decode pair: %04hX\n", s2);*/
+  /*printf("decode pair: %04hX\n", s);*/
 	conf_as_output(PGD);
 
   set_ftdi_mode(BITMODE_BITBANG);
@@ -258,8 +240,8 @@ retruns :
 -1 : read error
 dev_ID if read success and ID recognized
 */
-	unsigned short dev_id;
-
+	uint16_t dev_id;
+  uint16_t i;
 	six(nop);
   six(goto_0x200);
   six(nop);
@@ -269,28 +251,27 @@ dev_ID if read success and ID recognized
 	six(0x20F887); //	MOV #VISI, W7
 	six(nop); 		 //	NOP
 
-  /*265435     MOV #0x6543, W5*/
-  /*780B85     MOV W5, [W7]*/
-  six(0x265435);
-  six(0x780B85);
-	six(nop); 		 //	NOP
-	six(nop); 		 //	NOP
-	six(nop); 		 //	NOP
-	six(nop); 		 //	NOP
-	six(nop); 		 //	NOP
+  for(i=0x1234; i< 0x6000; i+=0x1111){
+    
+    printf("Testing read write for 0x%04X: ", i);
+    /*265435     MOV #0x6543, W5*/
+    /*780B85     MOV W5, [W7]*/
+    six(0x200000 | i << 4 | 0x000005);
+    six(0x780B85);
+    six(nop); 		 //	NOP
+    six(nop); 		 //	NOP
+    six(nop); 		 //	NOP
+    six(nop); 		 //	NOP
+    six(nop); 		 //	NOP
 
-	dev_id = regout();	// READ VISI !!
-	six(nop); 		 //	NOP
-	six(nop); 		 //	NOP
-	six(nop); 		 //	NOP
-	six(nop); 		 //	NOP
-	six(nop); 		 //	NOP
-
-	dev_id = regout();
-	six(nop); 		 //	NOP
-	dev_id = regout();
-	six(nop); 		 //	NOP
-	flush_buf();
+    dev_id = regout();	// READ VISI !!
+    printf("0x%04X ->", dev_id);
+    if(dev_id == i){
+      printf("Ok!\n");
+    }else{
+      printf("error!\n");
+    }
+  }
 }
 
 int read_id(void){
@@ -374,7 +355,7 @@ dev_ID if read success and ID recognized
 }
 
 
-void enter_icsp(int numc){
+void enter_icsp(){
 	printf("Entering ICSP\n");
 	clr(MCLR);
 	clr(PGC);
