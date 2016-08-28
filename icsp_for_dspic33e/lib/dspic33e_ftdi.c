@@ -34,7 +34,7 @@ void open_ftdi_for_icsp(void){
 		exit(-1);
 	}
 	printf("ftdi open succeeded: %d\n",f);
-	usleep(10000);
+	usleep(1000);
   f =  ftdi_usb_purge_buffers(&ftdic);
   if (f < 0 ){
     fprintf(stderr, "purge buffers error: %d (%s)\n", f, ftdi_get_error_string(&ftdic));
@@ -120,7 +120,6 @@ void flush_buf(void){
 			fprintf(stderr,"Flush_buf write error %d (%s)\n",f, ftdi_get_error_string(&ftdic));
 			exit(-1);
 		}
-    /*usleep(buf_pos * 200);*/
 	buf_pos = 0;
 	}
 }
@@ -194,7 +193,7 @@ unsigned short regout(void){
 	}
 	flush_buf();
 
-  usleep(40000);
+  usleep(40);
   set_ftdi_mode(BITMODE_SYNCBB);
 
 	conf_as_input(PGD);
@@ -208,7 +207,7 @@ unsigned short regout(void){
   clr(PGC); //clock must go back to low
 
 
-	usleep(10000);
+	usleep(100);
 	f = ftdi_read_data(&ftdic, c, 255);
 	if(f<0){
 		fprintf(stderr,"read failed in regout, error %d (%s)\n", f, ftdi_get_error_string(&ftdic));
@@ -366,13 +365,13 @@ void enter_icsp(){
 	usleep(10);  //  P6 : 100ns
 	set(MCLR);  //pulse //rise time P14 max=1µs
 	clr(MCLR); // pulse time max=500µs
-	usleep(2000); //delay before key P18: min 1ms
+	usleep(1000); //delay before key P18: min 1ms
   key(0x4D434851);  //ICSP key + flush
 	usleep(3); //P19 : 25ns
 	set(MCLR);
 	// in ICSP mode (if everything went fine...)
 
-	usleep(150000); //P7 + P1*5 = 25ms + 5*200ns = 30ms.
+	usleep(30000); //P7 + P1*5 = 25ms + 5*200ns = 30ms.
   /* Coming out of the ICSP entry sequence, the first 4-bit control code is always
    * forced to SIX and a forced NOP instruction is executed by the CPU. "Five" additional
    * PGC clocks are needed on start-up, thereby resulting in a 9-bit SIX command
@@ -385,7 +384,7 @@ void enter_icsp(){
  	  clock(0);
   }
 	flush_buf();
-  usleep(4000); //P4: 40ns
+  usleep(4); //P4: 40ns
   //important to have exactly 3 nops, 1 jump, else it resets...
   //two or four nops and jump -> reset
   six(nop);
@@ -398,14 +397,14 @@ void enter_icsp(){
 
 void exit_icsp(void){ // ending ICSP
   set_ftdi_mode(BITMODE_BITBANG);
-  usleep(1000);
+  usleep(100);
 	clr(MCLR);
-  usleep(1000);
+  usleep(100);
 	conf_as_input(PGC);
 	conf_as_input(PGD);
-	usleep(1500);
+	usleep(150);
   set(MCLR);
-  usleep(1000);
+  usleep(100);
 	conf_as_input(MCLR);
 	printf("Exited ICSP.\n");
 }
