@@ -6,7 +6,7 @@
 #define sleep(x) Sleep(x)
 #endif
 #include <ftdi.h>
-#include "../lib/dspic33e_ftdi.h"
+#include "dspic33e_ftdi.h"
 
 
 int main(int argc, char **argv){
