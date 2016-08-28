@@ -386,11 +386,14 @@ void enter_icsp(){
   }
 	flush_buf();
   usleep(4000); //P4: 40ns
-  //important to have this jump so soon, else, it resets always..
+  //important to have exactly 3 nops, 1 jump, else it resets...
+  //two or four nops and jump -> reset
+  six(nop);
+  six(nop);
+  six(nop);
   six(goto_0x200);
   six(nop);
-	flush_buf();
-  usleep(4000); //P4A: 40ns
+  flush_buf();
 }
 
 void exit_icsp(void){ // ending ICSP
