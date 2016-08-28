@@ -52,6 +52,7 @@ int read_hex_file(char * hex_file);
 void open_ftdi_for_icsp(void);
 void close_ftdi_for_icsp(void);
 
+void set_ftdi_mode(int mode);
 void conf_as_input(int pin);
 void conf_as_output(int pin);
 void clr(int pin);
@@ -64,35 +65,12 @@ void clock(int bit);
 //ICSP
 
 void enter_icsp(void);
-void key(unsigned int);
-void six(unsigned int inst);
-void six_d(unsigned int inst);
-unsigned short regout(void);
+void key(uint32_t);
+void six(uint32_t inst);
+uint16_t regout(void);
 
 int read_id(void);
-void bulk_erase(void);
-int write_program_memory(void);
-int verify_program_memory(void);
-int write_config_regs(void);
-int verify_config_regs(void);
 void exit_icsp(void);
-unsigned char app_id(void);
 
 
-#define exit_eicsp() exit_icsp()
-//E-ICSP functions
-int write_program_executive(void);
-int verify_executive_memory(void);
-void sword(unsigned short w);
-void rword(unsigned short *tab,unsigned int nb);
-int enter_eicsp(void);
-int scheck(void);
-int qver(void);
-int crcp(void);
-int qblank(void);
-int eraseb(void);
-int progp(unsigned int mem_add);
-int e_prog_user_mem();
-int progc(unsigned int mem_add);
-int e_prog_config_reg(void);
 #endif
