@@ -13,7 +13,7 @@ all: $(PROG)
 	gcc -Wall -O3 -c ../lib/lib_crc.c -o ../lib/lib_crc.o
 		
 
-$(PROG).o: $(PROG).c ../lib/dspic33_ftdi.h 
+$(PROG).o: $(PROG).c ../lib/dspic33e_ftdi.h 
 
 	gcc -Wall -O3 -c $(PROG).c -o $(PROG).o 
 	
