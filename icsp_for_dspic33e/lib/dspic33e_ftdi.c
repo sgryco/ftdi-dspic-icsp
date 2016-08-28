@@ -255,9 +255,7 @@ dev_ID if read success and ID recognized
     /*265435     MOV #0x6543, W5*/
     /*780B85     MOV W5, [W7]*/
     six(0x200000 | i << 4 | 0x000005);
-    six(0x780B85);
-    six(nop); 		 //	NOP
-    six(nop); 		 //	NOP
+    six(0x780B85); //MOV W5, [W7]
     six(nop); 		 //	NOP
     six(nop); 		 //	NOP
     six(nop); 		 //	NOP
