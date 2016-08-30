@@ -66,13 +66,18 @@ void clock(int bit);
 //ICSP
 
 void enter_icsp();
+void exit_icsp(void);
 void key(uint32_t);
 void six(uint32_t inst);
 uint16_t regout(void);
 void test_regout(void);
 
 int read_id(void);
-void exit_icsp(void);
+void bulk_erase(void);
+int write_program_memory(void);
+int verify_program_memory(void);
+int write_config_regs(void);
+int verify_config_regs(void);
 
 
 #endif
