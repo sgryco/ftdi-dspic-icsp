@@ -692,7 +692,7 @@ int write_config_regs(){
 			six(nop);
 			flush_buf();
 		}while((NVMCON & (1<<15)) && (--nb_times));
-    printf("config reg did %d WR bit reads\n", 10 - nb_times);
+    /*printf("config reg did %d WR bit reads\n", 10 - nb_times);*/
     if(nb_times == 0){
       printf("error, WR not cleared\n");
       return -1;
@@ -704,7 +704,7 @@ int write_config_regs(){
 
 int write_program_memory(){
 	unsigned int mem_add,tab_idx,i,row;
-	printf("Programing %d rows\n", nb_row);
+	printf("Programming %d rows:\n", nb_row);
 
 	// Step 1: Exit the Reset vector
 	six(nop);
@@ -823,7 +823,7 @@ int write_program_memory(){
 			six(nop);
 			flush_buf();
 		}while((NVMCON & (1<<15)) && (--nb_times));
-    printf("user mem did %d WR bit reads\n", 10 - nb_times);
+    /*printf("user mem did %d WR bit reads\n", 10 - nb_times);*/
 		if(nb_times == 0){
 			printf("error, WR not cleared\n");
 			return -1;
@@ -1040,7 +1040,7 @@ int write_program_executive(void){
 	}
 	printf("%u pages erased.\n",nb_page);
 	
-	printf("Programming executive memory :\n");
+	printf("Programming executive memory:\n");
 	// Step 1: Exit the Reset vector
 	six(goto_0x200);
 	six(goto_0x200);
