@@ -11,6 +11,7 @@ inputs when the FTDI chip is used as a serial converter (RX instead of TX, etc) 
 
 #Building
 You need the libftdi-dev package.
+
     cd src
     make
 
