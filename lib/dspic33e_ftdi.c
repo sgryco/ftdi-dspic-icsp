@@ -219,14 +219,14 @@ unsigned short regout(void){
 
   conf_as_input(PGD);
   ftdi_usb_purge_buffers(&ftdic);
-  ftdi_usb_purge_rx_buffer(&ftdic);
+  /*ftdi_usb_purge_rx_buffer(&ftdic);*/
 
   for(i=0;i<16;i++){
     clock(0);
   }
+  output_state &= ~(1<<PGC); //clock low
+  t_buf[buf_pos++] = output_state;
   flush_buf();
-  clr(PGC); //clock must go back to low
-
 
   usleep(100);
   f = ftdi_read_data(&ftdic, c, 255);
@@ -834,161 +834,6 @@ int write_program_memory(){
 	return 1;
 }
 
-#define cmp_mem(x,madd) \
-	do{ \
-		if(x!=inst_read){\
-			printf("mem error at add : %06X, read 0x%06X instead of 0x%06X\n",madd,inst_read,x); \
-		}\
-	}while(0)
-
-
-
-int verify_program_memory(void){
-	unsigned int mem_add,tab_idx,i,row;
-	printf("Verifying program memory...\n");
-			
-	// Step 1: Exit the Reset vector
-	six(goto_0x200);
-	six(goto_0x200);
-	six(nop);
-
-	for(row=0; row<nb_row; row++){ 
-		// Step 2: Initialize TBLPAG and the read pointer (W6) for TBLRD instruction.
-		mem_add = row*128; 
-		tab_idx = row*64;
-		//printf("mem addhigh = %02X, add low %04x \n",(mem_add&0xFF0000)>>16,(mem_add&0x00FFFF));
-	
-		six(0x200000 | ((mem_add&0xFF0000)>>12) ); // MOV #<SourceAddress23:16>, W0 ;0x200xx0
-		six(0x880190); // MOV W0, TBLPAG
-		six(0x200006 | ((mem_add&0x00FFFF)<<4) ); // MOV #<SourceAddress15:0>, W6;0x2xxxx7
-
-		for(i=0;i<16;i++){ //Step 5: Repeat steps 3-4 sixteen times to read a raw of 64 instructions.
-			//Step 3: Initialize the write pointer (W7) and store the next four locations of code memory to W0:W5.
-			six(0xEB0380); // CLR W7
-			six(nop);
-			six(0xBA1B96); // TBLRDL   [W6], [W7++]
-			six(nop);
-			six(nop);
-			six(0xBADBB6); // TBLRDH.B [W6++], [W7++]
-			six(nop);
-			six(nop);
-			six(0xBADBD6); // TBLRDH.B [++W6], [W7++]
-			six(nop);
-			six(nop);
-			six(0xBA1BB6); // TBLRDL [W6++], [W7++]
-			six(nop);
-			six(nop);
-			six(0xBA1B96); // TBLRDL   [W6], [W7++]
-			six(nop);
-			six(nop);
-			six(0xBADBB6); // TBLRDH.B [W6++], [W7++]
-			six(nop);
-			six(nop);
-			six(0xBADBD6); // TBLRDH.B [++W6], [W7++]
-			six(nop);
-			six(nop);
-			six(0xBA0BB6); // TBLRDL [W6++], [W7]
-			six(nop);
-			six(nop);
-
-			//Step 4: Output W0:W5 using the VISI register and REGOUT command.
-			unsigned short tmp;
-			unsigned int inst_read;
-
-			six(0x883C20); // MOV W0, VISI
-			six(nop);
-			tmp = regout();
-			inst_read = tmp;
-	
-			six(nop); 
-			six(0x883C21); // MOV W1, VISI
-			six(nop);
-			tmp = regout();
-			six(nop);
-			inst_read |= (tmp & 0x00FF)<<16;
-			cmp_mem(user_mem[tab_idx],(tab_idx)<<1);
-
-
-			inst_read = (tmp & 0xFF00)<<8;
-			six(0x883C22); // MOV W2, VISI
-			six(nop);
-			tmp = regout();
-			six(nop);
-			inst_read |= tmp;
-			cmp_mem(user_mem[tab_idx+1],(tab_idx+1)<<1);
-	
-			six(0x883C23); // MOV W3, VISI
-			six(nop);
-			tmp = regout();
-			six(nop);
-			inst_read = tmp;			
-	
-			six(0x883C24); // MOV W4, VISI
-			six(nop);
-			tmp = regout();
-			six(nop);
-			inst_read |= (tmp & 0x00FF)<<16;
-			cmp_mem(user_mem[tab_idx+2],(tab_idx+2)<<1);
-
-			inst_read = (tmp & 0xFF00)<<8;
-			six(0x883C25); // MOV W5, VISI
-			six(nop);
-			tmp = regout();
-			six(nop);
-			inst_read |= tmp;
-			cmp_mem(user_mem[tab_idx+3],(tab_idx+3)<<1);
-
-		 	tab_idx += 4;
-		}
-		printf("\r%3u",row+1);fflush(stdout);
-	}
-	// Step 1: Exit the Reset vector
-	six(goto_0x200);
-	six(goto_0x200);
-	six(nop);
-	flush_buf();
-	printf("\nVerify complete!\n");		
-	return 1;
-}
-
-int verify_config_regs(void){
-	int i;
-	printf("Verifying Config registers\n");		
-	//Step 1: Exit the Reset vector.
-	six(goto_0x200);
-	six(goto_0x200);
-	six(nop);
-
-	//Step 2: Initialize TBLPAG, the read pointer (W6) and the write pointer (W7) for TBLRD instruction.
-	six(0x200F80); // MOV #0xF8, W0
-	six(0x880190); // MOV W0, TBLPAG
-	six(0xEB0300); // CLR W6
-	six(0x207847); // MOV #VISI, W7
-	six(nop);
-	
-	//Step 4: Repeat step 3 for each Configuration registers.
-	for(i=0;i<DSPIC33E_CONFREG_SIZE;i++){
-		unsigned short tmp;
-		unsigned int inst_read;
- 		//Step 3: Read the Configuration register and write it to the VISI register (located at 0x784) and clock out the
-		//VISI register using the REGOUT command.
-		six(0xBA0BB6); // TBLRDL [W6++], [W7]
-		six(nop);
-		six(nop);
-		tmp = regout();
-		inst_read = tmp;
-		printf("CR:0x%06X:0x%02hhX\n",0xF80000+i*2,inst_read & 0xFF);
-
-		cmp_mem((config_reg[i]&0x00FF),((i<<1) + 0xF80000));
-		
-	}
-	//Step 5: Reset device internal PC.
-	six(goto_0x200);
-	six(nop);
-	flush_buf();
-	printf("Verify complete\n");		
-	return 1;
-}
 
 int write_program_executive(void){
 	unsigned int tab_idx,i,row,nb_page;
@@ -1129,9 +974,16 @@ int write_program_executive(void){
 
 }
 
+#define cmp_mem(x,madd) \
+	do{ \
+		if(x!=inst_read){\
+			printf("mem error at add : %06X, read 0x%06X instead of 0x%06X\n",madd,inst_read,x); \
+		}\
+	}while(0)
+
 int verify_executive_memory(void){
 	unsigned int tab_idx,i,row;
-	
+
 	printf("Verifying program executive : %u rows to read...\n",nb_row);
 	// Step 1: Exit the Reset vector
 	six(goto_0x200);
@@ -1229,5 +1081,212 @@ int verify_executive_memory(void){
 	}
 
 	printf("\nVerification complete!\n");		
+	return 1;
+}
+
+int verify_program_memory(void){
+  unsigned int mem_add,tab_idx,i,row;
+  printf("Verifying program memory...\n");
+
+  // Step 1: Exit the Reset vector
+  six(nop);
+  six(nop);
+  six(nop);
+  six(goto_0x200);
+  six(nop);
+  six(nop);
+  six(nop);
+  // Step 5: Repeat step 4 until all desired code memory is read.
+  for(row=0; row<nb_row; row++){
+    // Step 2: Initialize TBLPAG and the read pointer (W6) for TBLRD instruction.
+    mem_add = row*256;
+    tab_idx = row*128;
+    /*printf("mem addhigh = %02X, add low %04x \n",(mem_add&0xFF0000)>>16,(mem_add&0x00FFFF));*/
+    six(0x200000 | ((mem_add&0xFF0000)>>12) ); // MOV #<SourceAddress23:16>, W0
+    six(nop);
+    six(0x8802A0); // MOV W0, TBLPAG
+    six(nop);
+    six(0x200006 | ((mem_add&0x00FFFF)<<4) ); // MOV #<SourceAddress15:0>, W6
+    six(nop);
+
+    for(i=0;i<32;i++){ //Step 5: Repeat steps 3-4 32 times to read a raw of 128 instructions.
+      //Step 3: Initialize the write pointer (W7) and store the next four locations of code memory to W0:W5.
+      six(0xEB0380); // CLR W7
+      six(nop);
+      six(nop);
+      six(nop);
+      six(0xBA1B96); // TBLRDL   [W6], [W7++]
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(0xBADBB6); // TBLRDH.B [W6++], [W7++]
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(0xBADBD6); // TBLRDH.B [++W6], [W7++]
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(0xBA1BB6); // TBLRDL [W6++], [W7++]
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(0xBA1B96); // TBLRDL   [W6], [W7++]
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(0xBADBB6); // TBLRDH.B [W6++], [W7++]
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(0xBADBD6); // TBLRDH.B [++W6], [W7++]
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(0xBA0BB6); // TBLRDL [W6++], [W7]
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      flush_buf();
+
+      /*unsigned int dev_id;*/
+      /*six(0x20F887); 	MOV #VISI, W7*/
+      /*six(nop); 		 	NOP*/
+
+      /*for(i=0x1234; i< 0x6000; i+=0x1111){*/
+
+        /*printf("Testing read write for 0x%04X: ", i);*/
+        /*265435     MOV #0x6543, W5*/
+        /*780B85     MOV W5, [W7]*/
+        /*six(0x200000 | i << 4 | 0x000005);*/
+        /*six(0x780B85); MOV W5, [W7]*/
+        /*six(nop); 		 	NOP*/
+        /*six(nop); 		 	NOP*/
+        /*six(nop); 		 	NOP*/
+
+        /*dev_id = regout();	 READ VISI !!*/
+        /*printf("0x%04X ->", dev_id);*/
+        /*if(dev_id == i){*/
+          /*printf("Ok!\n");*/
+        /*}else{*/
+          /*printf("error!\n");*/
+        /*}*/
+      /*}*/
+      //Step 4: Output W0:W5 using the VISI register and REGOUT command.
+      uint32_t tmp;
+      uint32_t inst_read;
+
+      six(0x887C40); // MOV W0, VISI
+      six(nop);
+      tmp = regout();
+      inst_read = tmp;
+
+      six(nop);
+      six(0x887C41); // MOV W1, VISI
+      six(nop);
+      tmp = regout();
+      six(nop);
+      inst_read |= (tmp & 0x00FF)<<16;
+      cmp_mem(user_mem[tab_idx],(tab_idx)<<1);
+
+
+      inst_read = (tmp & 0xFF00)<<8;
+      six(0x887C42); // MOV W2, VISI
+      six(nop);
+      tmp = regout();
+      six(nop);
+      inst_read |= tmp;
+      cmp_mem(user_mem[tab_idx+1],(tab_idx+1)<<1);
+
+      six(0x887C43); // MOV W3, VISI
+      six(nop);
+      tmp = regout();
+      six(nop);
+      inst_read = tmp;
+
+      six(0x887C44); // MOV W4, VISI
+      six(nop);
+      tmp = regout();
+      six(nop);
+      inst_read |= (tmp & 0x00FF)<<16;
+      cmp_mem(user_mem[tab_idx+2],(tab_idx+2)<<1);
+
+      inst_read = (tmp & 0xFF00)<<8;
+      six(0x887C45); // MOV W5, VISI
+      six(nop);
+      tmp = regout();
+      six(nop);
+      inst_read |= tmp;
+      cmp_mem(user_mem[tab_idx+3],(tab_idx+3)<<1);
+
+      tab_idx += 4;
+    }
+    printf("\r%3u",row+1);fflush(stdout);
+  }
+  // Step 1: Exit the Reset vector
+  six(nop);
+  six(nop);
+  six(nop);
+  six(goto_0x200);
+  six(nop);
+  six(nop);
+  six(nop);
+  flush_buf();
+  printf("\nVerify complete!\n");
+  return 1;
+}
+
+int verify_config_regs(void){
+	int i;
+	printf("Verifying Config registers\n");		
+	//Step 1: Exit the Reset vector.
+	six(goto_0x200);
+	six(goto_0x200);
+	six(nop);
+
+	//Step 2: Initialize TBLPAG, the read pointer (W6) and the write pointer (W7) for TBLRD instruction.
+	six(0x200F80); // MOV #0xF8, W0
+	six(0x880190); // MOV W0, TBLPAG
+	six(0xEB0300); // CLR W6
+	six(0x207847); // MOV #VISI, W7
+	six(nop);
+	
+	//Step 4: Repeat step 3 twelve times to read all the Configuration registers.
+	for(i=0;i<DSPIC33E_CONFREG_SIZE;i++){
+		unsigned short tmp;
+		unsigned int inst_read;
+ 		//Step 3: Read the Configuration register and write it to the VISI register (located at 0x784) and clock out the
+		//VISI register using the REGOUT command.
+		six(0xBA0BB6); // TBLRDL [W6++], [W7]
+		six(nop);
+		six(nop);
+		tmp = regout();
+		inst_read = tmp;
+		printf("CR:0x%06X:0x%02hhX\n",0xF80000+i*2,inst_read & 0xFF);
+
+		cmp_mem((config_reg[i]&0x00FF),((i<<1) + 0xF80000));
+		
+	}
+	//Step 5: Reset device internal PC.
+	six(goto_0x200);
+	six(nop);
+	flush_buf();
+	printf("Verify complete\n");		
 	return 1;
 }

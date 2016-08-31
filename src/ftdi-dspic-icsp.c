@@ -29,11 +29,12 @@ int main(int argc, char **argv){
  		goto exit_icsp;
  	}
 
-	bulk_erase();
+	/*bulk_erase();*/
 
   if(write_program_memory() < 0) goto exit_icsp;
   if(write_config_regs()< 0) goto exit_icsp;
-	/*if(verify_config_regs()< 0) goto exit_icsp;*/
+  /*if(verify_config_regs()< 0) goto exit_icsp;*/
+	if(verify_program_memory()< 0) goto exit_icsp;
 
 	/*
 	* time for bulk + w prog + w cg : 2.85s EICSP : 1.54
@@ -71,7 +72,6 @@ int main(int argc, char **argv){
  		printf("error reading device ID.\n");
  		goto exit_icsp;
  	}
-	if(verify_program_memory()< 0) goto exit_icsp;
 
 
 	*/
