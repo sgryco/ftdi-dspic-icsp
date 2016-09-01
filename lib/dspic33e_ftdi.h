@@ -79,5 +79,23 @@ int verify_program_memory(void);
 int write_config_regs(void);
 int verify_config_regs(void);
 
-
+//E-ICSP functions
+unsigned char app_id(void);
+#define exit_eicsp() exit_icsp()
+int write_program_executive(void);
+int verify_executive_memory(void);
+void sword(unsigned short w);
+void rword(unsigned short *tab,unsigned int nb);
+int enter_eicsp(void);
+int scheck(void);    
+int qver(void);
+int crcp(uint32_t add, uint32_t size, uint16_t *pic_crc);
+int e_verify_userprog();
+int qblank(void);
+int eraseb(void);
+int erasebp(void);
+int progp(unsigned int mem_add);
+int e_prog_user_mem();
+int progc(unsigned int mem_add);
+int e_prog_config_reg(void);
 #endif

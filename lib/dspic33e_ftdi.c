@@ -38,7 +38,6 @@ static uint8_t  config_reg[DSPIC33E_CONFREG_SIZE];
 static uint32_t max_user_mem = 0;
 static uint32_t max_executive_mem = 0;
 static uint32_t nb_row = 0;
-static uint16_t crc_citt_16 = 0xFFFF;
 /*found bugs from icsp for dsPIC33F: (fixed now)
  * -ftdi buffer size, if not the same, pb with synchrous bitbang
  * -changing pin direction also resets ftdi mode to async
@@ -573,7 +572,6 @@ int read_hex_file(char * hex_file){ /*return -1 for error, everything else si ok
   fclose(hf);
   //printf("Intel-Hex file read.\n");
   max_user_mem = 0;
-  crc_citt_16 = 0xFFFF;
 
   //47d8  a5a6
   /*04 02 00  763e
@@ -585,9 +583,7 @@ int read_hex_file(char * hex_file){ /*return -1 for error, everything else si ok
     */
 
 
-  crc_citt_16 = update_crc_ccitt(crc_citt_16, user_mem[0]&0xFF );
-  crc_citt_16 = update_crc_ccitt(crc_citt_16, (user_mem[0]>>8)&0xFF );
-  crc_citt_16 = update_crc_ccitt(crc_citt_16, (user_mem[0]>>16)&0xFF );
+
   //printf("user mem:\n");
   for(i=0;i<DSPIC33E_UPMEM_SIZE;i++){
     if(user_mem[i]!=0xFFFFFF){
@@ -596,19 +592,16 @@ int read_hex_file(char * hex_file){ /*return -1 for error, everything else si ok
     }
   }
   int program_executive = 0;
-  for(i=0;i<0x1000;i++){
+  for(i=0;i<DSPIC33E_PE_SIZE;i++){
     if(executive_memory[i]!=0xFFFFFF){
       program_executive  = 1;
       max_executive_mem = i;
     }
   }
-  for(i=0;i<DSPIC33E_CONFREG_SIZE;i++){
-    crc_citt_16 = update_crc_ccitt(crc_citt_16, config_reg[i]&0xFF );
-  }
   if(program_executive){
-    printf("Programming Executive Memory will be programmed (0x800000-0x%06X)\n",max_executive_mem*2+0x800000);
-    nb_row = max_executive_mem/64;
-    if(max_executive_mem % 64) nb_row++;
+    printf("Program Executive Memory will be programmed (0x800000-0x%06X)\n",max_executive_mem*2+0x800000);
+    nb_row = max_executive_mem/128;
+    if(max_executive_mem % 128) nb_row++;
   }else{
     printf("Config reg and user mem up to add 0x%06X\n", max_user_mem);
     nb_row = max_user_mem/128;
@@ -840,39 +833,54 @@ int write_program_executive(void){
 	nb_page = nb_row / 8;
 	if(nb_row % 8) nb_page++;
 	printf("Programing executive memory: %u pages to erase and %u rows to write...\n",nb_page,nb_row);
-	
+
 	// Step 1: Exit the Reset vector
-	six(goto_0x200);
+	six(nop);
+	six(nop);
+	six(nop);
 	six(goto_0x200);
 	six(nop);
+	six(nop);
+	six(nop);
+  six(0x24003A); // MOV #0x4003, W10
+  six(0x88394A); // MOV W10, NVMCON
+  six(nop);
 	for(i=0;i<nb_page;i++){
 		//Step 2: Initialize the NVMCON to erase a page of executive memory.
-		six(0x24042A); // MOV #0x4042, W10
-		six(0x883B0A); // MOV W10, NVMCON
 		//Step 3: Initiate the erase cycle, wait for erase to complete and make sure WR bit is clear.
-		six(0x200800); // MOV    #0x80, W0
-		six(0x880190); // MOV    W0, TBLPG
-		six(0x200001 | ((i*0x400)<<4)); // MOV    #0x00, W1
-		six(nop);
-		six(0xBB0881); // TBLWTL W1, [W1]
-		six(nop);
-		six(nop);
-		six(0xA8E761); // BSET   NVMCON, #15
-		six(nop);
-		six(nop);
-		six(nop);
+		six(0x200803); // MOV    #0x80, W3
+		six(0x883963); // MOV    W3, NVMADRU
+		six(0x200002 | ((i * 0x800)<<4)); // MOV    #0x0000/0x0800, W2
+    six(0x883952); // MOV    W2, NVMADRU
+    six(nop);
+    six(nop);
+    six(0x200551); // MOV #0x55, W1
+    six(0x883971); // MOV W1, NVMKEY
+    six(0x200AA1); // MOV #0xAA, W1
+    six(0x883971); // MOV W1, NVMKEY
+    six(0xA8E729); // BSET NVMCON, #WR
+    six(nop);
+    six(nop);
+    six(nop);
 		six(nop);
 		flush_buf();
 		unsigned short NVMCON;
 		unsigned int nb_times=100;
-		usleep(18000); //P12 = 20ms 
+		usleep(23000); //P12 = 23ms
 		do{ 	  //  Repeat until the WR bit is clear.
 			usleep(1000);
-			six(0x803B00); //MOV NVMCON, W0
-			six(0x883C20); //MOV W0, VISI
+			six(nop);
+			six(0x803940); //MOV NVMCON, W0
+			six(nop);
+			six(0x887C40); //MOV W0, VISI
 			six(nop);
 			NVMCON = regout();       //Clock out contents of VISI register.
+			six(nop);
+			six(nop);
+			six(nop);
 			six(goto_0x200);
+			six(nop);
+			six(nop);
 			six(nop);
 			flush_buf();
 		}while((NVMCON & (1<<15)) && (--nb_times));
@@ -880,41 +888,59 @@ int write_program_executive(void){
 			printf("error, WR not cleared\n");
 			return -1;
 		}else{
-			printf("page erased in %u ms\n",18+(100-nb_times)*1);
+			printf("page erased in %u ms\n",23+(100-nb_times));
 		}
 	}
 	printf("%u pages erased.\n",nb_page);
-	
+
 	printf("Programming executive memory:\n");
 	// Step 1: Exit the Reset vector
-	six(goto_0x200);
+	six(nop);
+	six(nop);
+	six(nop);
 	six(goto_0x200);
 	six(nop);
-	
-	//Step 2: Set the NVMCON to program 64 instruction words.
-	six(0x24001A); // MOV #0x4001, W10
-	six(0x883B0A); // MOV W10, NVMCON
-	
-		//Step 3: Initialize the write pointer (W7) for TBLWT instruction.
-	six(0x200800); // MOV #0x80, W0 
-	six(0x880190); // MOV W0, TBLPAG
-	six(0xEB0380 ); // CLR W7
-	tab_idx = 0;
-	for(row=0; row<nb_row; row++){ 
+	six(nop);
+	six(nop);
+	six(nop);
 
-		for(i=0;i<16;i++){ //Step 6: Repeat steps 4-5 sixteen times to load the write latches for 64 instructions.
-			//Step 4: Initialize the read pointer (W6) and load W0:W5 
+	//Step 2: Set the NVMCON to program 128 instruction words.
+	six(0x24002A); // MOV #0x4002, W10
+	six(0x88394A); // MOV W10, NVMCON
+	six(nop);
+	six(nop);
+
+  //Step 3: Initialize the write pointer (W7) and address
+  six(0x200803); // MOV    #0x80, W3
+  six(0x883963); // MOV    W3, NVMADRU
+  six(0x200FAC); // MOV    #0xFA, W12
+  six(0x8802AC); // MOV    W12, TBLPAG
+  six(nop);
+  six(nop);
+  six(nop);
+	tab_idx = 0;
+	for(row=0; row<nb_row; row++){
+    six(0x200002 | ((row * 256)<<4)); // MOV    #mem add, W2
+
+    six(0x883952); // MOV    W2, NVMADRU
+    six(0xEB0380); //CLR W7
+    six(nop);
+    six(nop);
+    six(nop);
+
+		for(i=0;i<32;i++){ //Step 6: Repeat steps 4-5 sixteen times to load the write latches for 64 instructions.
+			//Step 4: Initialize the read pointer (W6) and load W0:W5
 			//with the next 4 instruction words to program.
-			printf("%06X:%06X\n", tab_idx*2+0x800000,executive_memory[tab_idx]);
+			/*printf("%06X:%06X\n", tab_idx*2+0x800000,executive_memory[tab_idx]);*/
 			six(0x200000 | ((executive_memory[tab_idx]&0x00FFFF)<<4) ); // MOV #<LSW0>, W0
 		 	six(0x200001 | ((executive_memory[tab_idx+1]&0xFF0000)>>4) | ((executive_memory[tab_idx]&0xFF0000)>>12) ); // MOV #<MSB1:MSB0>, W1
 		 	six(0x200002 | ((executive_memory[tab_idx+1]&0x00FFFF)<<4) ); // MOV #<LSW1>, W0
 		 	six(0x200003 | ((executive_memory[tab_idx+2]&0x00FFFF)<<4) ); // MOV #<LSW2>, W0
 		 	six(0x200004 | ((executive_memory[tab_idx+3]&0xFF0000)>>4) | ((executive_memory[tab_idx+2]&0xFF0000)>>12) ); // MOV #<MSB3:MSB2>, W4
 		 	six(0x200005 | ((executive_memory[tab_idx+3]&0x00FFFF)<<4) ); // MOV #<LSW3>, W5
-		 	
+
 		 	//Step 5: Set the read pointer (W6) and load the (next set of) write latches.
-		 	six(0xEB0300); //CLR W6 
+		 	six(0xEB0300); //CLR W6
 			six(nop);
 			six(0xBB0BB6); //TBLWTL[W6++], [W7]
 			six(nop);
@@ -940,38 +966,52 @@ int write_program_executive(void){
 			six(0xBB1BB6); //TBLWTL[W6++], [W7++]
 	 		six(nop);
 			six(nop);
-		 	
+
 		 	tab_idx += 4;
-		}     	
-	 		
+		}
+
 	 	//Step 7: Initiate the write cycle.
-	    six(0xA8E761); //BSET NVMCON, #WR
+      six(0x200551); // MOV #0x55, W1
+      six(0x883971); // MOV W1, NVMKEY
+      six(0x200AA1); // MOV #0xAA, W1
+      six(0x883971); // MOV W1, NVMKEY
+      six(0xA8E729); // BSET NVMCON, #WR
+	   	six(nop);
 	   	six(nop);
 	   	six(nop);
 	   	six(nop);
 	   	six(nop);
 	   	flush_buf();
-	   	
+
 		//Step 8: Wait for Row Program operation to complete and make sure WR bit is clear.
 		unsigned short NVMCON;
 		unsigned int nb_times=10;
-		usleep(1850); //P13 = 1.28ms
+		usleep(1200); //P13 = 1.2-1.6ms
 		do{ 	  //  Repeat until the WR bit is clear.
-			usleep(1000);
-			six(0x803B00); //MOV NVMCON, W0
-			six(0x883C20); //MOV W0, VISI
+			six(nop);
+			six(0x803940); //MOV NVMCON, W0
+			six(nop);
+			six(0x887C40); //MOV W0, VISI
 			six(nop);
 			NVMCON = regout();       //Clock out contents of VISI register.
+			six(nop);
+			six(nop);
+			six(nop);
+			six(goto_0x200);
+			six(nop);
+			six(nop);
+			six(nop);
+			flush_buf();
 		}while((NVMCON & (1<<15)) && (--nb_times));
+    /*printf("user mem did %d WR bit reads\n", 10 - nb_times);*/
 		if(nb_times == 0){
 			printf("error, WR not cleared\n");
 			return -1;
 		}
-		printf("\r%3u rows written",row+1);fflush(stdout);
+		printf("\r%3u",row+1);fflush(stdout);
 	}
 	printf("\nComplete!\n");
 	return 0;
-
 }
 
 #define cmp_mem(x,madd) \
@@ -985,102 +1025,142 @@ int verify_executive_memory(void){
 	unsigned int tab_idx,i,row;
 
 	printf("Verifying program executive : %u rows to read...\n",nb_row);
+	printf("value at 0x7F0: %X\n",executive_memory[0x7F0>>1]);
 	// Step 1: Exit the Reset vector
-	six(goto_0x200);
-	six(goto_0x200);
-	six(nop);
+  six(nop);
+  six(nop);
+  six(nop);
+  six(goto_0x200);
+  six(nop);
+  six(nop);
+  six(nop);
+  six(0x200800); // MOV #0x80, W0
+  six(0x8802A0); // MOV W0, TBLPAG
+  six(nop);
 	tab_idx = 0;
-	
-	six(0x200800); // MOV #0x80, W0 
-	six(0x880190);  // MOV W0, TBLPAG
-	six(0xEB0300); //CLR W6
-	
+
 	for(row=0; row<nb_row; row++){ //for 2048K prog executive
 		// Step 2: Initialize TBLPAG and the read pointer (W6) for TBLRD instruction.
-	
-		for(i=0;i<16;i++){ //Step 5: Repeat steps 3-4 sixteen times to read a raw of 64 instructions.
-			//Step 3: Initialize the write pointer (W7) and store the next four locations of code memory to W0:W5.
-			six(0xEB0380); // CLR W7
-			six(nop);
-			six(0xBA1B96); // TBLRDL   [W6], [W7++]
-			six(nop);
-			six(nop);
-			six(0xBADBB6); // TBLRDH.B [W6++], [W7++]
-			six(nop);
-			six(nop);
-			six(0xBADBD6); // TBLRDH.B [++W6], [W7++]
-			six(nop);
-			six(nop);
-			six(0xBA1BB6); // TBLRDL [W6++], [W7++]
-			six(nop);
-			six(nop);
-			six(0xBA1B96); // TBLRDL   [W6], [W7++]
-			six(nop);
-			six(nop);
-			six(0xBADBB6); // TBLRDH.B [W6++], [W7++]
-			six(nop);
-			six(nop);
-			six(0xBADBD6); // TBLRDH.B [++W6], [W7++]
-			six(nop);
-			six(nop);
-			six(0xBA0BB6); // TBLRDL [W6++], [W7]
-			six(nop);
-			six(nop);
+    six(0x200006 | (((row*256)&0x00FFFF)<<4) ); // MOV #<SourceAddress15:0>, W6
+    six(nop);
 
-			//Step 4: Output W0:W5 using the VISI register and REGOUT command.
-			unsigned short tmp;
-			unsigned int inst_read;
+    for(i=0;i<32;i++){ //Step 5: Repeat steps 3-4 32 times to read a raw of 128 instructions.
+      //Step 3: Initialize the write pointer (W7) and store the next four locations of code memory to W0:W5.
+      six(0xEB0380); // CLR W7
+      six(nop);
+      six(nop);
+      six(nop);
+      six(0xBA1B96); // TBLRDL   [W6], [W7++]
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(0xBADBB6); // TBLRDH.B [W6++], [W7++]
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(0xBADBD6); // TBLRDH.B [++W6], [W7++]
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(0xBA1BB6); // TBLRDL [W6++], [W7++]
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(0xBA1B96); // TBLRDL   [W6], [W7++]
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(0xBADBB6); // TBLRDH.B [W6++], [W7++]
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(0xBADBD6); // TBLRDH.B [++W6], [W7++]
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(0xBA0BB6); // TBLRDL [W6++], [W7]
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      six(nop);
+      flush_buf();
 
-			six(0x883C20); // MOV W0, VISI
-			six(nop);
-			tmp = regout();
-			inst_read = tmp;
-	
-			six(nop); 
-			six(0x883C21); // MOV W1, VISI
-			six(nop);
-			tmp = regout();
-			six(nop);
-			inst_read |= (tmp & 0x00FF)<<16;
-			cmp_mem(executive_memory[tab_idx],((tab_idx)<<1)+0x800000);
+      //Step 4: Output W0:W5 using the VISI register and REGOUT command.
+      uint32_t tmp;
+      uint32_t inst_read;
 
-			inst_read = (tmp & 0xFF00)<<8;
-			six(0x883C22); // MOV W2, VISI
-			six(nop);
-			tmp = regout();
-			six(nop);
-			inst_read |= tmp;
-			cmp_mem(executive_memory[tab_idx+1],((tab_idx+1)<<1)+0x800000);
-	
-			six(0x883C23); // MOV W3, VISI
-			six(nop);
-			tmp = regout();
-			six(nop);
-			inst_read = tmp;			
-	
-			six(0x883C24); // MOV W4, VISI
-			six(nop);
-			tmp = regout();
-			six(nop);
-			inst_read |= (tmp & 0x00FF)<<16;
-			cmp_mem(executive_memory[tab_idx+2],((tab_idx+2)<<1)+0x800000);
+      six(0x887C40); // MOV W0, VISI
+      six(nop);
+      tmp = regout();
+      inst_read = tmp;
 
-			inst_read = (tmp & 0xFF00)<<8;
-			six(0x883C25); // MOV W5, VISI
-			six(nop);
-			tmp = regout();
-			six(nop);
-			inst_read |= tmp;
-			cmp_mem(executive_memory[tab_idx+3],((tab_idx+3)<<1)+0x800000);
-			six(goto_0x200);
-			six(nop);
-			flush_buf();
-		 	tab_idx += 4;
+      six(nop);
+      six(0x887C41); // MOV W1, VISI
+      six(nop);
+      tmp = regout();
+      six(nop);
+      inst_read |= (tmp & 0x00FF)<<16;
+      cmp_mem(executive_memory[tab_idx],(tab_idx)<<1);
+
+
+      inst_read = (tmp & 0xFF00)<<8;
+      six(0x887C42); // MOV W2, VISI
+      six(nop);
+      tmp = regout();
+      six(nop);
+      inst_read |= tmp;
+      cmp_mem(executive_memory[tab_idx+1],(tab_idx+1)<<1);
+
+      six(0x887C43); // MOV W3, VISI
+      six(nop);
+      tmp = regout();
+      six(nop);
+      inst_read = tmp;
+
+      six(0x887C44); // MOV W4, VISI
+      six(nop);
+      tmp = regout();
+      six(nop);
+      inst_read |= (tmp & 0x00FF)<<16;
+      cmp_mem(executive_memory[tab_idx+2],(tab_idx+2)<<1);
+
+      inst_read = (tmp & 0xFF00)<<8;
+      six(0x887C45); // MOV W5, VISI
+      six(nop);
+      tmp = regout();
+      six(nop);
+      inst_read |= tmp;
+      cmp_mem(executive_memory[tab_idx+3],(tab_idx+3)<<1);
+
+      tab_idx += 4;
 		}
 		printf("\r%3u",row+1);fflush(stdout);
 	}
+  six(nop);
+  six(nop);
+  six(nop);
+  six(goto_0x200);
+  six(nop);
+  six(nop);
+  six(nop);
+  flush_buf();
 
-	printf("\nVerification complete!\n");		
+	printf("\nVerification complete!\n");
 	return 1;
 }
 
@@ -1165,29 +1245,6 @@ int verify_program_memory(void){
       six(nop);
       flush_buf();
 
-      /*unsigned int dev_id;*/
-      /*six(0x20F887); 	MOV #VISI, W7*/
-      /*six(nop); 		 	NOP*/
-
-      /*for(i=0x1234; i< 0x6000; i+=0x1111){*/
-
-        /*printf("Testing read write for 0x%04X: ", i);*/
-        /*265435     MOV #0x6543, W5*/
-        /*780B85     MOV W5, [W7]*/
-        /*six(0x200000 | i << 4 | 0x000005);*/
-        /*six(0x780B85); MOV W5, [W7]*/
-        /*six(nop); 		 	NOP*/
-        /*six(nop); 		 	NOP*/
-        /*six(nop); 		 	NOP*/
-
-        /*dev_id = regout();	 READ VISI !!*/
-        /*printf("0x%04X ->", dev_id);*/
-        /*if(dev_id == i){*/
-          /*printf("Ok!\n");*/
-        /*}else{*/
-          /*printf("error!\n");*/
-        /*}*/
-      /*}*/
       //Step 4: Output W0:W5 using the VISI register and REGOUT command.
       uint32_t tmp;
       uint32_t inst_read;
@@ -1256,15 +1313,19 @@ int verify_config_regs(void){
 	int i;
 	printf("Verifying Config registers\n");		
 	//Step 1: Exit the Reset vector.
+	six(nop);
+	six(nop);
+	six(nop);
 	six(goto_0x200);
-	six(goto_0x200);
+	six(nop);
+	six(nop);
 	six(nop);
 
 	//Step 2: Initialize TBLPAG, the read pointer (W6) and the write pointer (W7) for TBLRD instruction.
 	six(0x200F80); // MOV #0xF8, W0
-	six(0x880190); // MOV W0, TBLPAG
-	six(0xEB0300); // CLR W6
-	six(0x207847); // MOV #VISI, W7
+	six(0x8802A0); // MOV W0, TBLPAG
+	six(0x200046); // MOV #4, W6
+	six(0x20F887); // MOV #VISI, W7
 	six(nop);
 	
 	//Step 4: Repeat step 3 twelve times to read all the Configuration registers.
@@ -1276,17 +1337,480 @@ int verify_config_regs(void){
 		six(0xBA0BB6); // TBLRDL [W6++], [W7]
 		six(nop);
 		six(nop);
+		six(nop);
+		six(nop);
+		six(nop);
 		tmp = regout();
 		inst_read = tmp;
-		printf("CR:0x%06X:0x%02hhX\n",0xF80000+i*2,inst_read & 0xFF);
+		/*printf("CR:0x%06X:0x%02hhX\n",0xF80004+i*2, inst_read & 0xFF);*/
 
-		cmp_mem((config_reg[i]&0x00FF),((i<<1) + 0xF80000));
-		
+		cmp_mem((config_reg[i]&0x00FF),((i<<1) + 0xF80004));
+
 	}
 	//Step 5: Reset device internal PC.
+	six(nop);
+	six(nop);
+	six(nop);
 	six(goto_0x200);
 	six(nop);
+	six(nop);
+	six(nop);
 	flush_buf();
-	printf("Verify complete\n");		
+	printf("Verify complete\n");
 	return 1;
+}
+
+
+
+//EICSP related function
+
+unsigned char app_id(void){
+  unsigned char Application_ID;
+  //Check E-ICSP Application ID
+  //Step 1: Exit the Reset vector.
+  six(nop);
+  six(nop);
+  six(nop);
+  six(goto_0x200);
+  six(nop);
+  six(nop);
+  six(nop);
+
+  six(0x200800); // MOV    #0x80, W0
+  six(0x8802A0); // MOV    W0, TBLPAG
+  six(0x207F00); // MOV    #0x07F0, W0
+  six(0x20F881); // MOV    #VISI, W1
+  six(nop);
+  six(0xBA0890); //TBLRDL [W0], [W1]
+  six(nop);
+  six(nop);
+  six(nop);
+  six(nop);
+  six(nop);
+
+  Application_ID = regout()&0xFF;
+  six(nop);
+
+  printf("app Id: %02hX\n", Application_ID);
+  return Application_ID;
+}
+
+int enter_eicsp(void){
+  printf("Entering E-ICSP...\n");
+  clr(MCLR); 
+  clr(PGC);
+  clr(PGD);
+  conf_as_output(MCLR); //pic running
+  conf_as_output(PGC);
+  conf_as_output(PGD);
+  usleep(10);  // P6 : 100ns
+  set(MCLR);  //pulse
+  clr(MCLR);
+  usleep(1000); //delay before key P18 : 1ms
+
+  key(0x4D434850);  //E-ICSP key
+  usleep(3); //P19 : 25ns
+  set(MCLR);
+  usleep(30000); // P7 25ms	
+  // in E-ICSP mode (if everything went fine...)
+  if(scheck() < 0) return -1;
+  return 0;
+}
+
+int scheck(void){
+  unsigned short rtab[2];
+  sword( 0x0001 );
+  flush_buf();
+
+  conf_as_input(PGD);
+  usleep(5); // after last word of command : wait 12µ P8
+  while(get_bit(PGD) == 1) ;	// high for 10µ
+  usleep(100);	// detect low and wait 23µ before clocking in response words
+  //usleep(15);
+
+
+  rword(rtab,2);
+  conf_as_output(PGD);
+  if( (rtab[0] == 0x1000) && (rtab[1] == 0x0002)){
+    printf("sanity OK!\n");
+    return 0;
+  }else{
+    printf("sanity check error, received: 0x%04hX 0x%04hX\n",rtab[0],rtab[1]);
+    return -1;
+  }
+}
+#define PASS 0x01
+#define FAIL 0x02
+#define NACK 0x03
+
+union response {
+  unsigned short word;
+  struct __attribute__ ((__packed__))  {
+    union {
+      unsigned char val;
+      struct __attribute__ ((__packed__)) {
+        unsigned N:4;
+        unsigned M:4;
+      } version_struct;
+    }  qe_code;
+    unsigned last_cmd:4;
+    unsigned opcode:4;
+  } str;
+} resp;
+
+
+int qver(void){
+  unsigned short rtab[2];
+  unsigned char opcode;
+  unsigned short length;
+  opcode = 0xB; //QVER
+  length = 1;
+
+  sword( (((unsigned short)opcode)<<12) |  (length&0xFFF));
+  flush_buf();
+  conf_as_input(PGD);
+  usleep(5); // after last word of command : wait 12µ P8
+  while(get_bit(PGD) == 1) ;	// high for 10µ
+  usleep(100);	// detect low and wait 23µ before clocking in response words
+  rword(rtab,2);
+  conf_as_output(PGD);
+
+  resp.word = rtab[0];
+  if( (rtab[1] == 0x0002) && resp.str.opcode==PASS && resp.str.last_cmd==opcode ){  
+    printf("Program Executive Software version is : %hhu.%hhu\n",resp.str.qe_code.version_struct.M,resp.str.qe_code.version_struct.N);
+    return 0;
+  }else{
+    printf("qver error, received : 0x%04hX 0x%04hX\n",rtab[0],rtab[1]);
+    return -1;
+  }
+}
+
+int crcp(uint32_t add, uint32_t size, uint16_t *pic_crc){
+  unsigned short rtab[3];
+  unsigned char opcode;
+  unsigned short length;
+  opcode = 0xC; //CRCP
+	length = 5;
+
+	sword( (((unsigned short)opcode)<<12) |  (length&0xFFF));
+	//from: 0x000000
+	//size: 0x00AC00
+	sword(add>>16); // MSB add
+	sword(add&0xFFFF); // LSB add
+	sword(size>>16); // size MSB
+	sword(size&0xFFFF); // size LSB, here it's, size, number of instruction, ie address range / 2
+	flush_buf();
+	conf_as_input(PGD);
+	usleep(5); // after last word of command : wait 12µ P8
+	while(get_bit(PGD) == 1) ;	// high for 10µ
+	usleep(100);	// detect low and wait 23µ before clocking in response words
+	rword(rtab,3);
+	conf_as_output(PGD);
+
+	resp.word = rtab[0];
+	if( (rtab[1] == 3) && resp.str.opcode==PASS && resp.str.last_cmd==opcode && resp.str.qe_code.val == 0x00){  
+    *pic_crc = rtab[2];
+    return 0;
+	}else{
+		printf("crcp error, received : 0x%04hX 0x%04hX 0x%04hX\n",rtab[0],rtab[1],rtab[2]);
+		return -1;
+	}
+
+}
+
+int e_verify_userprog(){
+  int i;
+  uint32_t start, size;
+  uint16_t crc, pic_crc;
+  //check start point
+  start = 0;
+  size = (max_user_mem / 2) - start/2;
+  if(size%2) //if odd memory size, round to next even value, to be able to pack 2 instructions
+    size++;
+  crc = 0xFFFF;
+  for(i=start/2;i<size+start/2;i+=2){
+    //the PIC crc algorithm, uses packed instruction word format, and shifts LSB first
+    //it combines 2 instructions in 3 words
+    crc = update_crc_ccitt(crc, user_mem[i]&0xFF );
+    crc = update_crc_ccitt(crc, (user_mem[i]>>8)&0xFF );
+    crc = update_crc_ccitt(crc, (user_mem[i]>>16)&0xFF );
+    crc = update_crc_ccitt(crc, (user_mem[i+1]>>16)&0xFF );
+    crc = update_crc_ccitt(crc, (user_mem[i+1]>>0)&0xFF );
+    crc = update_crc_ccitt(crc, (user_mem[i+1]>>8)&0xFF );
+  }
+  if(crcp(start, size, &pic_crc))
+    return -1;
+
+  if(crc == pic_crc){
+    printf("Full memory checksum: %04hX is verified!\n", pic_crc);
+    return 0;
+  }else{
+    printf("Chksum ERROR: calculated:%04hX received:%04hX \n",crc, pic_crc);
+    return -1;
+  }
+}
+
+int qblank(void){
+	const static unsigned short rep_len = 2;
+	unsigned short rtab[rep_len];
+	unsigned char opcode;
+	unsigned short length;
+	opcode = 0xE; //CRCP
+	length = 5;
+
+	sword( (((unsigned short)opcode)<<12) |  (length&0xFFF));
+	sword(0x0000);
+	sword(0xAC00); //size : all mem
+	sword(0x0000);
+	sword(0x0000);	//start add : 0x000000
+	flush_buf();
+	conf_as_input(PGD);
+	usleep(5); // after last word of command : wait 12µ P8
+	while(get_bit(PGD) == 1) ;	// high for 10µ
+	usleep(100);	// detect low and wait 23µ before clocking in response words
+	rword(rtab,rep_len);
+	conf_as_output(PGD);
+
+	resp.word = rtab[0];
+	if( (rtab[1] == rep_len) && resp.str.opcode==PASS && resp.str.last_cmd==0xA ){  
+		if(resp.str.qe_code.val == 0xF0){
+			printf("Program Memory is blank.\n");
+			return 0;
+		}else if(resp.str.qe_code.val == 0x0F){
+			printf("Program memory is NOT blank\n");
+			return 0;
+		}else{
+			printf("error: qe_code = %hhX\n",resp.str.qe_code.val);
+			return -1;
+		}
+	}else{
+		printf("Qblank error, received : 0x%04hX 0x%04hX\n",rtab[0],rtab[1]);
+		return -1;
+	}
+
+}
+
+int erasebp(void){
+	const static unsigned short rep_len = 2;
+	unsigned short rtab[rep_len];
+	unsigned char opcode;
+	unsigned short length;
+	opcode = 0x6; //ERASEBP
+	length = 1;
+	printf("Bulk erase program memory...");
+	sword( (((unsigned short)opcode)<<12) |  (length&0xFFF));
+	flush_buf();
+	conf_as_input(PGD);
+	usleep(5); // after last word of command : wait 12µ P8
+	while(get_bit(PGD) == 1) ;	// high for 10µ
+	usleep(100);	// detect low and wait 23µ before clocking in response words
+	rword(rtab,rep_len);
+	conf_as_output(PGD);
+	
+	resp.word = rtab[0];
+	if( (rtab[1] == rep_len) && resp.str.opcode==PASS && resp.str.last_cmd==opcode && resp.str.qe_code.val == 0x00){  
+		printf("complete.\n");
+		return 0;
+		
+	}else{
+		printf("error, received : 0x%04hX 0x%04hX\n",rtab[0],rtab[1]);
+		return -1;
+	}
+
+}
+int eraseb(void){
+	const static unsigned short rep_len = 2;
+	unsigned short rtab[rep_len];
+	unsigned char opcode;
+	unsigned short length;
+	opcode = 0x7; //ERASEB
+	length = 1; 
+	printf("Bulk erase ");
+	sword( (((unsigned short)opcode)<<12) |  (length&0xFFF));
+	flush_buf();
+	conf_as_input(PGD);
+	usleep(5); // after last word of command : wait 12µ P8
+	while(get_bit(PGD) == 1) ;	// high for 10µ
+	usleep(100);	// detect low and wait 23µ before clocking in response words
+	rword(rtab,rep_len);
+	conf_as_output(PGD);
+	
+	resp.word = rtab[0];
+	if( (rtab[1] == rep_len) && resp.str.opcode==PASS && resp.str.last_cmd==opcode && resp.str.qe_code.val == 0x00){  
+		printf("complete.\n");
+		return 0;
+		
+	}else{
+		printf("error, received : 0x%04hX 0x%04hX\n",rtab[0],rtab[1]);
+		return -1;
+	}
+
+}
+
+
+int progp(unsigned int mem_add){
+	const static unsigned short rep_len = 2;
+	unsigned short rtab[rep_len];
+	unsigned char opcode;
+	unsigned short length;
+	unsigned int i;
+	opcode = 0x5; //CRCP
+	length = 192+3;
+	if((mem_add & 0x00007F) || mem_add > DSPIC33E_UPMEM_SIZE*2){
+		printf("%06X is not a multiple of 80 or out of range\n",mem_add);
+		return -1;
+	}
+	sword( (((unsigned short)opcode)<<12) |  (length&0xFFF));
+
+	sword((mem_add&0xFF0000)>>16);
+	sword((mem_add&0xFFFF));
+	for(i=(mem_add>>1);i<(mem_add>>1)+128;i+=2){
+		sword(user_mem[i] & 0x00FFFF);
+		sword( ((user_mem[i+1]&0xFF0000)>>8) | ((user_mem[i]&0xFF0000)>>16) );
+		sword( user_mem[i+1]&0x00FFFF );
+	}
+	flush_buf();
+	conf_as_input(PGD);
+	usleep(5); // after last word of command : wait 12µ P8
+	while(get_bit(PGD) == 1) ;	// high for 10µ
+	usleep(100);	// detect low and wait 23µ before clocking in response words
+	rword(rtab,rep_len);
+	conf_as_output(PGD);
+	
+	resp.word = rtab[0];
+	if( (rtab[1] == rep_len) && resp.str.opcode==PASS && resp.str.last_cmd==opcode && resp.str.qe_code.val == 0x00){  
+		return 0;
+	}else{
+		printf("Progp error, received : 0x%04hX 0x%04hX\n",rtab[0],rtab[1]);
+		return -1;
+	}
+
+}
+
+int e_prog_user_mem(void){
+	unsigned int row;
+	unsigned int prc;
+	printf("Programming program memory...\n");
+	printf("[                    ]");
+	for(row=0; row<nb_row; row++){ 
+		if(progp(row*256) < 0) return -1;
+		printf("\r["); 
+		for(prc=0;prc<(row*20+nb_row/2)/nb_row;prc++){
+			printf("*");
+		}
+		fflush(stdout);
+	}
+	printf("\r[********************] done!\n");
+	return 0;
+}
+
+
+int progc(unsigned int mem_add){
+	const static unsigned short rep_len = 2;
+	unsigned short rtab[rep_len];
+	unsigned char opcode;
+	unsigned short length;
+	opcode = 0x4; //CRCP
+	length = 0x4; 
+	if( (mem_add & 0x01) || mem_add<0xF80000 || mem_add > 0xF80016){
+		printf("%06X is not the add of a config reg\n",mem_add);
+		return -1;
+	}
+	sword( (((unsigned short)opcode)<<12) |  (length&0xFFF));
+
+	sword((mem_add&0xFF0000)>>16);
+	sword((mem_add&0xFFFF));
+	sword(config_reg[(mem_add-0xF80004)>>1]&0x0000FF); 
+	flush_buf();
+	conf_as_input(PGD);
+	usleep(5); // after last word of command : wait 12µ P8
+	while(get_bit(PGD) == 1) ;	// high for 10µ
+	usleep(100);	// detect low and wait 23µ before clocking in response words
+	rword(rtab,rep_len);
+	conf_as_output(PGD);
+	
+	resp.word = rtab[0];
+	if( (rtab[1] == rep_len) && resp.str.opcode==PASS && resp.str.last_cmd==opcode && resp.str.qe_code.val == 0x00){  
+		return 0;
+	}else{
+		printf("Error Progc config_reg, received : 0x%04hX 0x%04hX\n",rtab[0],rtab[1]);
+		return -1;
+	}
+
+}
+
+int e_prog_config_reg(void){
+	unsigned int reg;
+	printf("Programming configuration registers...");
+	for(reg=0xF80004; reg<=0xF80004+DSPIC33E_CONFREG_SIZE*2; reg+=2){ 
+		if(progc(reg) < 0) return -1;
+	}
+	printf(" done!\n");
+	return 0;
+}
+
+void sword(unsigned short w){ //shift out a word (16 bits)
+	int i;
+	unsigned char bit;
+
+	for(i=0;i<16;i++){
+		bit = (w&0x8000)>>15;
+
+		if(buf_pos>BUF_SIZE-2){
+			flush_buf();
+		}
+		output_state &= ~(1<<PGC); //clock low
+
+		t_buf[buf_pos++] = output_state ;
+		if(bit){
+			output_state |= (1<<PGD); //one
+		}else{
+			output_state &= ~(1<<PGD); // zero
+		}
+
+		output_state |= 1<<PGC;
+		t_buf[buf_pos++] = output_state ;
+
+		w<<=1;
+	}
+	output_state &= ~(1<<PGC); //clock low
+	t_buf[buf_pos++] = output_state ;
+}
+
+void rword(unsigned short *tab,unsigned int nb){
+	unsigned int i,o;
+	unsigned short s;
+	unsigned char c[33];
+	ftdi_set_bitmode(&ftdic, io_mask, BITMODE_SYNCBB);
+	ftdi_usb_purge_buffers(&ftdic);
+
+	for(o=0;o<nb;o++){
+
+		for(i=0;i<16;i++){
+			clock(0);
+		}
+		output_state &= ~(1<<PGC); //clock low
+		t_buf[buf_pos++] = output_state ;
+		flush_buf();
+
+		f=ftdi_read_data(&ftdic,c,33);
+		if(f<0){
+			fprintf(stderr,"read failed in regout, error %d (%s)\n", f, ftdi_get_error_string(&ftdic));
+			exit(-1);
+		}else if(f != 33){
+			printf("did not read enough bytes, only %d...\n",f);
+			printf("ftdi read error\n");
+			exit_icsp();
+			close_ftdi_for_icsp();
+			exit (-1);
+		}
+		s = 0;
+		for(i=0;i<32;i+=2){
+			s <<= 1;
+			s |= ((unsigned short) ((c[i+2] & (1<<PGD)) >> PGD)) ;//shift in MSB first
+		}
+		*tab++ = s;
+	}
+
+	ftdi_set_bitmode(&ftdic, io_mask, BITMODE_BITBANG);
 }
