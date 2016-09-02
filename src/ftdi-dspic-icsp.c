@@ -59,7 +59,7 @@ int main(int argc, char **argv){
 
 	/*if(qver() < 0) goto exit_icsp;*/
 	/*if(crcp() < 0) goto exit_icsp;*/
-  /*if(eraseb() < 0) goto exit_icsp;*/
+  if(eraseb() < 0) goto exit_icsp;
   /*if(qblank() < 0) goto exit_icsp;*/
 
 

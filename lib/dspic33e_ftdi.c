@@ -1676,11 +1676,13 @@ int progp(unsigned int mem_add){
 	usleep(100);	// detect low and wait 23µ before clocking in response words
 	rword(rtab,rep_len);
 	conf_as_output(PGD);
-	
+
 	resp.word = rtab[0];
 	if( (rtab[1] == rep_len) && resp.str.opcode==PASS && resp.str.last_cmd==opcode && resp.str.qe_code.val == 0x00){  
 		return 0;
 	}else{
+    printf("Progp command:\nopcode: 0x%X\nlength: %d\nmem_start: 0x%06X\n",
+        opcode, length, mem_add);
 		printf("Progp error, received : 0x%04hX 0x%04hX\n",rtab[0],rtab[1]);
 		return -1;
 	}
