@@ -5,12 +5,24 @@
 #endif
 #include <ftdi.h>
 #include "dspic33e_ftdi.h"
+#include <time.h>
 
+void duration(char * txt){
+  static struct timespec tstart={0,0}, tend={0,0};
+  if(txt == 0){//start
+    clock_gettime(CLOCK_MONOTONIC, &tstart);
+  }else{
+  clock_gettime(CLOCK_MONOTONIC, &tend);
+  printf("%s took about %.6f seconds\n",
+      txt,
+      ((double)tend.tv_sec + 1.0e-9*tend.tv_nsec) -
+      ((double)tstart.tv_sec + 1.0e-9*tstart.tv_nsec));
+  }
+}
 
 int main(int argc, char **argv){
 
-
-
+  duration((char *)0);
 	if(argc != 2){
 		printf("Syntax error : %s HEX_FILE\n",argv[0]);
 		exit(-1);
@@ -21,13 +33,13 @@ int main(int argc, char **argv){
 		return -1;
 	}
 
-	open_ftdi_for_icsp();
- 	enter_icsp();
+  open_ftdi_for_icsp();
+   /*enter_icsp();*/
 
- 	if(read_id()<0){
- 		printf("error reading device ID.\n");
- 		goto exit_icsp;
- 	}
+   /*if(read_id()<0){*/
+     /*printf("error reading device ID.\n");*/
+     /*goto exit_icsp;*/
+   /*}*/
 
   /*bulk_erase();*/
 
@@ -44,16 +56,16 @@ int main(int argc, char **argv){
 	*
 	*/
 
-  uint16_t pe_id;
-  pe_id = app_id();
-  if(pe_id != 0x3E){
-    printf("Program Executive is absent starting programmation\n");
-    if(write_program_executive() < 0) goto exit_icsp;
-    if(verify_executive_memory() < 0)  goto exit_icsp;
-  }else{
-    printf("Program Executive is present.\n");
-  }
-  exit_icsp();
+  /*uint16_t pe_id;*/
+  /*pe_id = app_id();*/
+  /*if(pe_id != 0x3E){*/
+    /*printf("Program Executive is absent starting programmation\n");*/
+    /*if(write_program_executive() < 0) goto exit_icsp;*/
+    /*if(verify_executive_memory() < 0)  goto exit_icsp;*/
+  /*}else{*/
+    /*printf("Program Executive is present.\n");*/
+  /*}*/
+  /*exit_icsp();*/
 
   if(enter_eicsp() < 0) goto exit_eicsp;
 
@@ -68,13 +80,14 @@ int main(int argc, char **argv){
   if(e_prog_config_reg() < 0 ) goto exit_eicsp;
   if(e_verify_userprog() < 0) goto exit_icsp;
 
-	exit_eicsp();
- 	enter_icsp();
+  exit_eicsp();
+   enter_icsp();
   if(verify_config_regs()< 0) goto exit_icsp;
 
 exit_icsp:
 exit_eicsp:
  	exit_icsp();
  	close_ftdi_for_icsp();
+  duration("Full programming");
  	return 0;
 }

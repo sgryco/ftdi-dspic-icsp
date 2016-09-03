@@ -151,7 +151,7 @@ void flush_buf(void){
   }
 }
 
-void clock(int bit){
+void ftclock(int bit){
   if(buf_pos>BUF_SIZE-5){ // -5 to allow a full double clock (4 bytes)
     flush_buf();
   }
@@ -172,7 +172,7 @@ void clock(int bit){
 void key(uint32_t key){
   int i;
   for(i=0;i<32;i++){
-    clock((key&0x80000000) != 0);  // The Most Significant bit of
+    ftclock((key&0x80000000) != 0);  // The Most Significant bit of
     // the most significant nibble must be shifted in first.
     key <<= 1;
   }
@@ -183,13 +183,13 @@ void key(uint32_t key){
 
 void six(uint32_t inst){
   int i;
-  clock(0); // SIX (send a command)
-  clock(0);
-  clock(0);
-  clock(0);
+  ftclock(0); // SIX (send a command)
+  ftclock(0);
+  ftclock(0);
+  ftclock(0);
 
   for(i=0;i<24;i++){
-    clock(inst&0x000001); //shift out lsb first
+    ftclock(inst&0x000001); //shift out lsb first
     inst>>=1;
   }
 }
@@ -209,13 +209,13 @@ unsigned short regout(void){
   int i;
   uint8_t c[255];
 
-  clock(1); // REGOUT will read 16 bits (a word)
-  clock(0);
-  clock(0);
-  clock(0);
+  ftclock(1); // REGOUT will read 16 bits (a word)
+  ftclock(0);
+  ftclock(0);
+  ftclock(0);
 
   for(i=0;i<8;i++){
-    clock(0);
+    ftclock(0);
   }
   flush_buf();
 
@@ -227,7 +227,7 @@ unsigned short regout(void){
   /*ftdi_usb_purge_rx_buffer(&ftdic);*/
 
   for(i=0;i<16;i++){
-    clock(0);
+    ftclock(0);
   }
   output_state &= ~(1<<PGC); //clock low
   t_buf[buf_pos++] = output_state;
@@ -405,7 +405,7 @@ void enter_icsp(){
   int tmp;
   /* do 5 extra clocks*/
   for(tmp=0; tmp < 5; tmp++){
-    clock(0);
+    ftclock(0);
   }
   flush_buf();
   usleep(4); //P4: 40ns
@@ -1698,11 +1698,11 @@ int progp(unsigned int mem_add){
 int e_prog_user_mem(void){
 	unsigned int row;
 	unsigned int prc;
-	printf("Programming program memory...\n");
+	printf("Programming program memory (%d row)...\n", nb_row);
 	printf("[                    ]");
-	for(row=0; row<nb_row; row++){ 
+	for(row=0; row<nb_row; row++){
 		if(progp(row*256) < 0) return -1;
-		printf("\r["); 
+		printf("\r[");
 		for(prc=0;prc<(row*20+nb_row/2)/nb_row;prc++){
 			printf("*");
 		}
@@ -1795,7 +1795,7 @@ void rword(unsigned short *tab,unsigned int nb){
 	for(o=0;o<nb;o++){
 
 		for(i=0;i<16;i++){
-			clock(0);
+			ftclock(0);
 		}
 		output_state &= ~(1<<PGC); //clock low
 		t_buf[buf_pos++] = output_state ;

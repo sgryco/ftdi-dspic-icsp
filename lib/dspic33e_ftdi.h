@@ -61,7 +61,7 @@ void set(int pin);
 unsigned char get_bit(unsigned char pin);
 
 void flush_buf(void);
-void clock(int bit);
+void ftclock(int bit);
 
 //ICSP
 
