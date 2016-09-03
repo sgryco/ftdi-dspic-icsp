@@ -48,12 +48,18 @@ void open_ftdi_for_icsp(void){
     fprintf(stderr, "ftdi_init failed\n");
     exit(-1);
   }
-  f = ftdi_usb_open(&ftdic, 0x0403, 0xac75);
-  if (f < 0 && f != -5){
-    fprintf(stderr, "unable to open ftdi device: %d (%s)\n", f, ftdi_get_error_string(&ftdic));
-    exit(-1);
+  f = ftdi_usb_open(&ftdic, 0x0403, 0x6001); // standard ftdi FT232 id
+  if (f < 0 && f != -5) {
+      f = ftdi_usb_open(&ftdic, 0x0403, 0xac75); // Amicus18 custom VID
+      if (f < 0 && f != -5) {
+          fprintf(stderr, "unable to open ftdi device: %d (%s)\n", f, ftdi_get_error_string(&ftdic));
+          exit(-1);
+      }else{
+          printf("Crownhill Amicus18 FTDI chip found!\n");
+      }
+  }else{
+      printf("Standard FTDI chip found!\n");
   }
-  printf("ftdi open succeeded: %d\n",f);
   usleep(1000);
   f =  ftdi_usb_purge_buffers(&ftdic);
   if (f < 0 ){
