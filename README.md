@@ -6,6 +6,8 @@ The FTDI chip is available as cable or USB stick PCB such as the (FTDI  USB-RS23
 
 For the moment, it is in developpement.
 It has only been tested with a dsPIC33EP512MU810 (USB STARTER BOARD)
+It supports ICSP programming of program memory and configuration registers, programming of the Enhanced ICSP program executive, and using the EICSP to do full programming.
+ 
 
 # FTDI wiring
 You can use any pin to connect to PGC, PGD and MCLR, adjust the lib/dspic33e_ftdi.h file accordingly
@@ -32,11 +34,20 @@ It will perform:
 * writing user memory
 * writing configuration registers
 * reading user memory
-* reading configuration registers (Work in Progress)
+* reading configuration registers
+
+* TODO: EICSP verification of configuration registers.
 
 #Speed stats
 Using ICSP:
-* Writing: 0.2 s/page (128 instructions)
-* Reading: 6.3 s/page
-Reading is very slow and should be improved.
+* Writing: 0.2 s/row (128 instructions)
+* Reading: 6.3 s/row
+* Verify configuration registers: 0.3s
+Reading is very slow due to the switching to synchronous bitbang mode, and also du to the ICSP protocol.
+Using EICSP
+* Erasing: 0.13s
+* Writing Prog: 0.05 s/row
+* Writing conf: 0.4s
+* Program verification: using crc comparison, 0.002s/page
+
 
